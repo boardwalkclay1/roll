@@ -1,11 +1,10 @@
 "use client";
 
-import mapboxgl from "mapbox-gl";
 import { useEffect, useRef, useState } from "react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import { SkateLoader } from "@/app/components/SkateLoader";
 import { NavBar } from "@/app/components/NavBar";
-
-mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN!;
 
 type Spot = {
   id: number;
@@ -26,19 +25,20 @@ const FILTERS = [
 ];
 
 export default function MapsPage() {
+  const mapRef = useRef<L.Map | null>(null);
   const mapContainer = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
   const [activeFilters, setActiveFilters] = useState<string[]>(["skate_park", "street_spot"]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
-    mapRef.current = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: "mapbox://styles/mapbox/dark-v11",
-      center: [-84.39, 33.75],
-      zoom: 11
-    });
+
+    mapRef.current = L.map(mapContainer.current).setView([33.75, -84.39], 12);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "© OpenStreetMap contributors"
+    }).addTo(mapRef.current);
   }, []);
 
   useEffect(() => {
@@ -51,24 +51,24 @@ export default function MapsPage() {
     fetch(`/api/spots?${params.toString()}`)
       .then(r => r.json())
       .then((spots: Spot[]) => {
-        (mapRef.current as any)._markers?.forEach((m: mapboxgl.Marker) => m.remove());
-        (mapRef.current as any)._markers = [];
+        mapRef.current!.eachLayer(layer => {
+          if ((layer as any)._url) return;
+          mapRef.current!.removeLayer(layer);
+        });
 
         spots.forEach(s => {
-          const marker = new mapboxgl.Marker({ color: "#00ffcc" })
-            .setLngLat([s.lng, s.lat])
-            .setPopup(
-              new mapboxgl.Popup().setText(
-                `${s.name} (${s.type.replace("_", " ")})`
-              )
-            )
-            .addTo(mapRef.current!);
-          (mapRef.current as any)._markers.push(marker);
+          L.marker([s.lat, s.lng], {
+            icon: L.divIcon({
+              className: "custom-marker",
+              html: `<div style="width:14px;height:14px;border-radius:50%;background:#00ffcc;box-shadow:0 0 8px #00ffcc;"></div>`
+            })
+          })
+            .addTo(mapRef.current!)
+            .bindPopup(`${s.name} (${s.type.replace("_", " ")})`);
         });
 
         setLoading(false);
-      })
-      .catch(() => setLoading(false));
+      });
   }, [activeFilters]);
 
   function toggleFilter(type: string) {
@@ -79,10 +79,8 @@ export default function MapsPage() {
 
   return (
     <main className="h-screen flex flex-col bg-black text-white">
-      <header className="p-4 text-xl font-bold flex items-center justify-between">
-        <span>Roll & Connect</span>
-        <span className="text-xs text-white/50">Map</span>
-      </header>
+      <header className="p-4 text-xl font-bold">Skate Map</header>
+
       <div className="p-2 flex flex-wrap gap-2">
         {FILTERS.map(f => (
           <button
@@ -98,6 +96,7 @@ export default function MapsPage() {
           </button>
         ))}
       </div>
+
       <div className="relative flex-1">
         <div ref={mapContainer} className="absolute inset-0" />
         {loading && (
@@ -106,6 +105,7 @@ export default function MapsPage() {
           </div>
         )}
       </div>
+
       <NavBar />
     </main>
   );
